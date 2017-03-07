@@ -28,12 +28,12 @@ def main():
 
 
     python_path = '/usr/bin/python2.7' #Set your python path 
-    file_path = "{}/{}".format(os.getcwd(), 'fetchCCNData.py') #The fetchRhizomaticaData.py file should be in the same directory as this cron scheduler
+    file_path = "{}/{}".format(os.getcwd(), 'fetchSubscriberTAC.py') #The fetchSubscriberTAC.py file should be in the same directory as this cron scheduler
 
     args = "{} {} {} {} {} {}".format("-f", os.getcwd(), "-c", "ccn_db", "-o", "tac_records") #Set you command line arguments accordingly
     command = "{} {} {}".format(python_path, file_path, args)
 
-    cronJob().add_daily(command, 15, 17)
+    cronJob().add_daily(command, 13, 05)
 
 if __name__ == "__main__":
     main()
