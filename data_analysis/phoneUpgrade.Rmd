@@ -1,0 +1,102 @@
+##Understanding Phone Upgrades and Simcard sharing
+
+```{r, echo = FALSE, warning=FALSE, message=FALSE}
+require(data.table)
+require(ggplot2)
+require(hashmap)
+require(knitr)
+source('./functions.R')
+```
+
+```{r}
+# Read in the files into a dataframe, this is the untarred, unzipped folder that Shaddi sent #out remove the 0 byte files, or it will fail
+files <- list.files('imsis_id_endaga/', pattern='*.log')
+files <- paste('imsis_id_endaga/', files, sep = '')
+
+imsiraw <- rbindlist(lapply(files, function(x){fread(x,colClasses=c('character','character','integer','integer','integer'))}))
+
+setnames(imsiraw,c('imsi','imei','accessed','created','is_auth'))
+```
+
+```{r, results= "hide"}
+# process the date and time
+imsiraw[,created_dt:=as.POSIXct(created, origin="1970-01-01", tz = "GMT")]
+imsiraw[,created_ds:=as.Date(created_dt)]
+imsiraw[,created_hour:=hour(created_dt)]
+
+imsiraw[,accessed_dt:=as.POSIXct(accessed, origin="1970-01-01", tz = "GMT")]
+imsiraw[,accessed_ds:=as.Date(accessed_dt)]
+imsiraw[,accessed_hour:=hour(accessed_dt)]
+
+#Sorting dates by creation time
+imsiraw <- imsiraw[order(imsiraw$created_dt), ]
+```
+
+####Understanding phones shared
+```{r}
+#This dataframe contains the list of same sim with different phones
+phone_sharing <- data.frame(matrix(0, nrow = 0, ncol = 3))
+colnames(phone_sharing) <- c("imsi", "imei_list", "count")
+
+for(current_imsi in unique(imsiraw$imsi)){
+  imei_list <- list(unique(subset(imsiraw, imsi == current_imsi)[, imei]))
+  
+  phone_sharing[nrow(phone_sharing) + 1, c('imsi', 'count')] <- c(current_imsi, length(imei_list[[1]]))
+  phone_sharing$imei_list[nrow(phone_sharing)] <- imei_list
+
+}
+
+phone_sharing$count <- as.numeric(phone_sharing$count)
+phone_sharing = phone_sharing[order(phone_sharing$count, decreasing = T), ]
+
+cat('count, num_phone_shared')
+for(times in unique(phone_sharing$count)){
+  num <- length(which(phone_sharing$count == times))
+  cat(paste(num, times, sep = ","))
+  cat('\n')
+}
+```
+
+#### Understanding Phone upgrades
+```{r}
+#This dataframe contains list of sims where the phone has been upgraded
+phone_upgrade <- data.frame(matrix(0, nrow = 0, ncol = 3))
+colnames(phone_upgrade) <- c("imsi", "imei_list", "count")
+
+#Now, lets look at upgrades - which is phones where the old sim was not logged back.
+for(current_imsi in unique(imsiraw$imsi)){
+    imei <- subset(imsiraw, imsi == current_imsi)
+    
+    parsed_imei <- c()
+    current_imei = 0
+    sharing = F
+    for(i in 1:nrow(imei)){
+        if(imei[i, 'imei'] != current_imei){
+            if(!(imei[i, 'imei'] %in% parsed_imei)){
+                current_imei = as.character(imei[i, 'imei'])
+                parsed_imei[length(parsed_imei) + 1] <- current_imei
+            }
+            else{
+                sharing = T
+                break
+            }
+        }  
+    }
+
+    if(sharing == F){
+        phone_upgrade[nrow(phone_upgrade) + 1, c('imsi', 'count')] <- c(current_imsi, length(parsed_imei))
+        phone_upgrade$imei_list[nrow(phone_upgrade)] <- list(parsed_imei)
+    }
+}
+
+phone_upgrade$count <- as.numeric(phone_upgrade$count)
+phone_upgrade = phone_upgrade[order(phone_upgrade$count, decreasing = T), ]
+
+cat('count, num_phone_upgrades')
+for(times in unique(phone_upgrade$count)){
+  num <- length(which(phone_upgrade$count == times))
+  cat(paste(num, times, sep = ","))
+  cat('\n')
+}
+```
+480 instances were discarded since they indicated phone being shared among multiple IMSIs
