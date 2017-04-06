@@ -18,15 +18,16 @@ class fetchSubscriberTAC:
     def fetchTAC(self):
         """Get TAC numbers from phones connected on the last day to present"""
 
-        last_day = datetime.datetime.now().date() - datetime.timedelta(days=1)
-        last_day = "{}{}{}".format("'", last_day, "'")
-        
-        self.hlr_cur.execute("SELECT id FROM Subscriber WHERE updated >= {date};".format(date = last_day))
+        last_hour = datetime.datetime.now().date() - datetime.timedelta(hours = 1)
+        last_hour = "{}{}{}".format("'", last_hour, "'")
+        last_hour = datetime.date(2011, 4, 5)
+
+        self.hlr_cur.execute("SELECT id FROM Subscriber WHERE updated >= {date};".format(date = last_hour))
         subscribers = self.hlr_cur.fetchall()
 
         parsed_data = {}
         unique_imei = {}
-        uid_count = 0
+        #uid_count = 0
 
         for subscriber in subscribers:
             self.hlr_cur.execute("SELECT IMEI FROM Equipment WHERE id = (SELECT equipment_id FROM EquipmentWatch WHERE subscriber_id = {s_id});".format(s_id = subscriber[0]))
@@ -37,19 +38,18 @@ class fetchSubscriberTAC:
                     imei_number = imei[0] 
 
                     if imei_number not in unique_imei:
-                        uid_count += 1
-                        unique_imei[imei_number] = uid_count
+                        unique_imei[imei_number] = subscriber[0]
 
-            uid = unique_imei[imei_number]
-            parsed_data.setdefault((uid), str(imei_number)[:8])
+                    uid = unique_imei[imei_number]
+                    parsed_data.setdefault((uid), str(imei_number)[:8])
 
         self.saveRecords(parsed_data)
 
     def saveRecords(self, parsed):
         """Save the dictionary"""
         
-        date_today = datetime.datetime.now().strftime('%d_%m_%Y')
-        output_file_complete_path = "{}/{}{}".format(self.output_directory, date_today, '.csv')
+        date_today = int(datetime.datetime.now().timestamp())
+        output_file_complete_path = "{}/{}{}".format(self.output_directory, date_today, '.log')
         out = open(output_file_complete_path, 'w+')
 
         for key, value in parsed.iteritems():
