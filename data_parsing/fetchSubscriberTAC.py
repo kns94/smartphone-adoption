@@ -18,18 +18,18 @@ class fetchSubscriberTAC:
     def fetchTAC(self):
         """Get TAC numbers from phones connected on the last day to present"""
 
-        last_hour = datetime.datetime.now() - datetime.timedelta(hours = 1)
+        last_hour = datetime.datetime.now().date() - datetime.timedelta(hours = 1)
         last_hour = "{}{}{}".format("'", last_hour, "'")
-        #last_hour = datetime.date(2011, 4, 5)
+        last_hour = datetime.date(2011, 4, 5)
 
         self.hlr_cur.execute("SELECT id FROM Subscriber WHERE updated >= {date};".format(date = last_hour))
         subscribers = self.hlr_cur.fetchall()
 
         parsed_data = {}
         unique_imei = {}
+        #uid_count = 0
 
         for subscriber in subscribers:
-            '''Here I am having subscriber id as a unique id to TAC. This will allow us to understand phone upgrades'''
             self.hlr_cur.execute("SELECT IMEI FROM Equipment WHERE id = (SELECT equipment_id FROM EquipmentWatch WHERE subscriber_id = {s_id});".format(s_id = subscriber[0]))
             parsed_imei = self.hlr_cur.fetchall()
 
@@ -48,12 +48,12 @@ class fetchSubscriberTAC:
     def saveRecords(self, parsed):
         """Save the dictionary"""
         
-        date_today = datetime.datetime.now().strftime('%s')
+        date_today = int(datetime.datetime.now().timestamp())
         output_file_complete_path = "{}/{}{}".format(self.output_directory, date_today, '.log')
         out = open(output_file_complete_path, 'w+')
 
         for key, value in parsed.iteritems():
-            line = "{},{}{}".format(key, value, '\n')
+            line = "{},{},{}".format(key, value,'\n')
             out.write(line)
         out.close()
 
