@@ -13,17 +13,34 @@ compute_specs <- function(imsi_mapped){
 
 #Figure out how many feature, 3G and 4G phones were connected per day
 compute_phones_online <- function(imsi_mapped){
-    phone_usage <- imsi_mapped[, list(times = sum(times_accessed)), by = list(accessed_ds, network_support)]
-    phone_usage <- phone_usage[order(accessed_ds)]
-    total_usage <- phone_usage[, list(total_connections = sum(times)), by = list(accessed_ds)][order(accessed_ds)]
-    setkey(phone_usage, accessed_ds)[total_usage, ratio := ((times/total_connections) * 100)]
+    #phone_usage <- imsi_mapped[, list(times = sum(times_accessed)), by = list(accessed_month, accessed_year, network_support)][order(accessed_year, accessed_month)]
+    
+    average_daily_phone_usage <- imsi_mapped[, list(daily_mean_hours = mean(times_accessed)), by = list(accessed_ds, accessed_month, accessed_year,
+                                                           network_support)][order(accessed_ds)]
+    average_monthly_phone_usage <- average_daily_phone_usage[, list(monthly_mean_hours = mean(daily_mean_hours)),
+        by = list(accessed_year, accessed_month, network_support)]
 
+    median_daily_phone_usage <- imsi_mapped[, list(daily_median_hours = median(times_accessed)), by = list(accessed_ds, accessed_month, accessed_year,
+                                                           network_support)][order(accessed_ds)]
+    median_monthly_phone_usage <- median_daily_phone_usage[, list(monthly_median_hours = median(daily_median_hours)),
+        by = list(accessed_year, accessed_month, network_support)]
 
-    streamgraph(data = phone_usage, key = 'network_support', value = 'ratio', date = 'accessed_ds', offset="zero",
-     interpolate="linear") %>%
-      sg_legend(show=TRUE, label="I- names: ")
+    average_monthly_phone_usage[, accessed_ds:= paste(accessed_month, accessed_year, sep = '-')]
+    average_monthly_phone_usage$accessed_ds = as.Date(as.yearmon(average_monthly_phone_usage$accessed_ds, format = '%m-%Y'))
 
-    return(phone_usage)
+    average_monthly_phone_usage <- average_monthly_phone_usage[, c('accessed_ds', 'monthly_mean_hours', 'network_support')]
+    average_monthly_phone_usage <- dcast(average_monthly_phone_usage, accessed_ds ~ network_support, value.var = 'monthly_mean_hours')
+
+    p <- plot_ly(average_monthly_phone_usage, x = ~accessed_ds, y = ~feature, type = 'bar', name = 'Feature Phones') %>%
+            add_trace(y = ~threeG, name = '3G Phones') %>%
+            add_trace(y = ~fourG, name = '4G Phones') %>%
+            layout(yaxis = list(title = 'Average Daily Usage'), xaxis = list(title = 'Month'), barmode = 'group')
+
+    #streamgraph(data = average_monthly_phone_usage, key = 'network_support', value = 'monthly_mean_hours', date = 'accessed_ds', offset="zero",
+    # interpolate="linear") %>%
+    #  sg_legend(show=TRUE, label="Network Support: ")
+
+    return(p)
 }
 
 #Load log files into a certain format
@@ -35,6 +52,7 @@ load_log_files <- function(directory){
                                 function(x){fread(x,colClasses=c('character','character','integer','integer','integer'))}))
 
     setnames(imsiraw,c('imsi','imei','accessed','created','is_auth'))
+    imsiraw[is_auth >= 1, ]$is_auth <- 1
 
     # process the date and time
     imsiraw[,created_dt:=as.POSIXct(created, origin="1970-01-01", tz = "GMT")]
@@ -47,7 +65,11 @@ load_log_files <- function(directory){
     setwd('../')
 
     #Getting only one instance of IMSI, IMEI per day
-    imsiraw <- imsiraw[, list(times_accessed = .N), list(imsi, imei, accessed_ds, created_ds)]
+    imsiraw <- imsiraw[, list(times_accessed = .N), list(imsi, imei, accessed_ds, created_ds, is_auth)]
+
+    #Getting month and year when the phone was accessed
+    imsiraw[, accessed_month:=month(accessed_ds)]
+    imsiraw[, accessed_year:=year(accessed_ds)]
 
     # Calculate the check digit
     imsiraw[,checkdigit:=checkDigitCalc(imei)]
@@ -98,7 +120,9 @@ filter_local_users <- function(imsiraw){
     setkey(unique_imsiraw, 'imsi')
     unique_imsiraw = unique(unique_imsiraw)
 
-    imsiraw = subset(imsiraw, as.numeric(days_encounter) > 0)
+    #So, we need a better statistic to filter local/non-local users. I need to conduct a statistical
+    #test to identify that
+    imsiraw = subset(imsiraw, is_auth > 0)
     return(imsiraw)
 }
 
