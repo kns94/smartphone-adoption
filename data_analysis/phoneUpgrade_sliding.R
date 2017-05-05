@@ -26,7 +26,7 @@ for(current_imsi in unique_imsi){
 
     sim_activity <- subset(imsiraw, imsi == current_imsi)
     #Dominant phone per day
-    sim_activity <- sim_activity[, max(.N), by = list(accessed_ds, imeicorrected)]
+    sim_activity <- sim_activity[, list(times_used = max(.N)), by = list(accessed_ds, imeicorrected)]
     sharing = compute_sim_sharing(sim_activity)
     
     imsi_count = imsi_count + 1
