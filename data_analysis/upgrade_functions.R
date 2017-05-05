@@ -1,16 +1,17 @@
 source('./functions.R')
+source('./phoneAdoption.R')
 require(reshape2)
 
 #Figure out type of device
 compute_specs <- function(imsi_mapped){
-    imsi_mapped[, network_support:='feature']
-    imsi_mapped[grepl('CDMA',Band), network_support:='threeG']
-    imsi_mapped[grepl('UMTS',Band), network_support:='threeG']
-    imsi_mapped[grepl('HSDPA',Band), network_support:='threeG']
-    imsi_mapped[grepl('HSUPA',Band), network_support:='threeG']
-    imsi_mapped[grepl('WCDMA',Band), network_support:='threeG']
-    imsi_mapped[grepl('HSPA+',Band), network_support:='threeG']
-    imsi_mapped[grepl('LTE', Band), network_support:='fourG']
+    imsi_mapped[, network_support:='2G']
+    imsi_mapped[grepl('CDMA',Band, ignore.case = T), network_support:='3G']
+    imsi_mapped[grepl('UMTS',Band, ignore.case = T), network_support:='3G']
+    imsi_mapped[grepl('HSDPA',Band, ignore.case = T), network_support:='3G']
+    imsi_mapped[grepl('HSUPA',Band, ignore.case = T), network_support:='3G']
+    imsi_mapped[grepl('WCDMA',Band, ignore.case = T), network_support:='3G']
+    imsi_mapped[grepl('HSPA+',Band, ignore.case = T), network_support:='3G']
+    imsi_mapped[grepl('LTE', Band, ignore.case = T), network_support:='4G']
 
     return(imsi_mapped)
 }
@@ -29,7 +30,7 @@ compute_phones_online <- function(imsi_mapped){
     average_monthly_phone_usage <- average_monthly_phone_usage[, c('accessed_ds', 'monthly_mean_hours', 'network_support')]
     average_monthly_phone_usage <- dcast(average_monthly_phone_usage, accessed_ds ~ network_support, value.var = 'monthly_mean_hours')
 
-    p <- plot_ly(average_monthly_phone_usage, x = ~accessed_ds, y = ~feature, type = 'bar', name = 'Feature Phones') %>%
+    p <- plot_ly(average_monthly_phone_usage, x = ~accessed_ds, y = ~twoG, type = 'bar', name = '2G Phones') %>%
             add_trace(y = ~threeG, name = '3G Phones') %>%
             add_trace(y = ~fourG, name = '4G Phones') %>%
             layout(yaxis = list(title = 'Average of Average Daily Usage'), xaxis = list(title = 'Month'),
@@ -76,7 +77,7 @@ load_log_files <- function(directory){
     #imsiraw[,dayofweek:=weekdays(accessed_ds, abbreviate = TRUE)]
     # cast day of the week as factor and order them
     #imsiraw[,dayofweek:=factor(dayofweek, ordered = TRUE, 
-                           levels = c('Sun', 'Sat', 'Fri', 'Thu',  'Wed', 'Tue', 'Mon'))]
+    #                       levels = c('Sun', 'Sat', 'Fri', 'Thu',  'Wed', 'Tue', 'Mon'))]
     # Add weekend/weekday identifier
     #imsiraw[,weekend:=FALSE]
     #imsiraw[dayofweek %in% c('Sun','Sat'),weekend:=TRUE]
@@ -86,9 +87,14 @@ load_log_files <- function(directory){
     #imsiraw = subset(imsiraw, accessed_ds >= as.Date('2016-04-11', format = '%Y-%m-%d'))
     
     #tacdb <- fread('tac_mapping.csv', colClasses = 'character')
-    tacdb<-fread('MSRPLUS20161101.txt',colClasses = "character")
+    tacdb<-fread('MSRPLUS20161101.txt', colClasses = "character")
     imsi_mapped <- merge(imsiraw, tacdb, by.x="tac", by.y = 'TAC', all.x=TRUE)
+    
     imsi_mapped <- compute_specs(imsi_mapped)
+    imsi_mapped[ ,fname:=paste(`Brand Name`, `Model Name`, `Marketing Name`)]
+
+    #turk <- fread('mturk_results.csv', colClasses = "character")
+    #imsi_mapped <- merge(imsi_mapped, turk, by.x="fname", by.y = "fname", all.x=TRUE, allow.cartesian = T)
     #imsi_mapped[network_support == "", network_support = NA]
 
     return(imsi_mapped)
@@ -182,14 +188,13 @@ get_inflection_point <- function(imsiraw){
 
     y <- list(
         title = "Number of Users"
-    )    
+    )
 
     plot_ly(data = average_usage, x = ~ratio, y = ~num_users) %>%
             layout(xaxis = x, yaxis = y, title = 'Ratio of usage vs number of users')
-
-
 }
-    
+
+
 #Get local users based on recorded IMSI activity
 filter_local_users <- function(imsiraw){
     #imsi raw is expected in a certain format, you have to load the log files using the load file function
@@ -209,15 +214,41 @@ filter_local_users <- function(imsiraw){
     setkey(times, imsi)
     imsiraw = merge(imsiraw, times)
     
+    #Same time as experiment
+    #imsiraw <- subset(imsiraw, accessed_ds > as.Date('04-01-2016', format = '%m-%d-%Y'))
+
     #Calculating ratio
     #imsiraw[, average_usage:=number_days/as.integer(diff_days)]   
 
-    #unique_imsiraw = imsiraw[, list(imsi, average_usage, diff_days, first_encounter_with_imsi, last_encounter_with_imsi, number_days, is_auth)]
+    #unique_imsiraw = imsiraw[, list(imsi, tac, number_days, is_auth, year)]
     #setkey(unique_imsiraw, 'imsi')
     #unique_imsiraw = unique(unique_imsiraw)
 
+    #unique_devices = imsiraw[, list(tac, fname)]
+    #setkey(unique_devices, tac)
+    #unique_devices <- unique(unique_devices)
+    #    imsi_mapped <- merge(unique_devices, turk, by.x="fname", by.y = "fname", all.x=TRUE, allow.cartesian = T)
+
+
     #Local users are those registered on network ie is_auth > 0 or else having an activity of atleast 10 days on the network
     imsiraw = subset(imsiraw, (is_auth > 0) | (number_days >= 10))
+    return(imsiraw)
+}
+
+#Get local users based on recorded IMSI activity
+filter_non_local_users <- function(imsiraw){
+    #imsi raw is expected in a certain format, you have to load the log files using the load file function
+
+    #Count number of days an IMSI is connected
+    times = imsiraw[, .N, by = list(imsi, accessed_ds)][, list(number_days = .N), by = list(imsi)]
+    
+    #Merging both dataframes
+    setkey(imsiraw, imsi)
+    setkey(times, imsi)
+    imsiraw = merge(imsiraw, times)
+    
+    #Local users are those registered on network ie is_auth > 0 or else having an activity of atleast 10 days on the network
+    imsiraw = subset(imsiraw, (is_auth == 0) & (number_days < 10))
     return(imsiraw)
 }
 
@@ -257,17 +288,19 @@ compute_sim_sharing <- function(sim_activity){
     return(F)
 }
 
-compute_phone_upgrade <- function(IMSI, imsiraw, sim_activity, phone_upgrades, upgrade_age){
+compute_phone_upgrade <- function(IMSI, imsiraw, sim_activity, phone_upgrades, community_transfer, upgrade_age){
     all_imei = unique(sim_activity$imeicorrected)
     current_type = NA
+    current_age = NA
+    first_phone = T
     l <- list()
 
     for(IMEI in all_imei){
         TAC = substr(IMEI, 1, 8)
 
-        u.row <- which((upgrade_age$imsi == IMSI) & (upgrade_age$imeicorrected == IMEI))
-        if(length(u.row) == 0){
-            upgrade_age[nrow(upgrade_age) + 1, ] <- c(IMSI, compute_upgrade_age(sim_activity, imsiraw, IMEI))
+        ct.row <- which((community_transfer$imsi == IMSI) & (community_transfer$imeicorrected == IMEI))
+        if(length(ct.row) == 0){
+            community_transfer[nrow(community_transfer) + 1, ] <- c(IMSI, compute_transfer_community(sim_activity, imsiraw, IMEI))
         }
 
         if(is.na(current_type)){
@@ -296,7 +329,7 @@ compute_phone_upgrade <- function(IMSI, imsiraw, sim_activity, phone_upgrades, u
     }
 
     l$phone_upgrades <- phone_upgrades
-    l$upgrade_age <- upgrade_age
+    l$community_transfer <- community_transfer
 
     return(l)
 }
@@ -319,7 +352,7 @@ plot_sankey <- function(phone_upgrades){
 
 #Computing if the phone to which the user upgraded was an old phone or not. If it was an old phone, what is the date difference between
 #today and when it was first created!
-compute_upgrade_age <- function(sim_activity, imsiraw, IMEI){
+compute_transfer_community <- function(sim_activity, imsiraw, IMEI){
     pairing_date <- min(subset(sim_activity, imeicorrected == IMEI)$accessed_ds)
     age <- as.numeric(pairing_date - min(subset(imsiraw, imeicorrected == IMEI)$created_ds))
     return(c(IMEI, as.numeric(age)))
@@ -330,4 +363,10 @@ get_upgrade_matrix <- function(phone_upgrades){
     phone_upgrades$percentage <- as.numeric(phone_upgrades$count/(sum(phone_upgrades$count)) * 100)
     m <- as.matrix(dcast(phone_upgrades, to ~ from, value.var = "percentage", fill=0))[, 2:4]
     row.names(m) <- colnames(m)
+}
+
+#Script to understand the rate of phones being shared during the experiment
+shared_phones <- function(shared_imsi, imsiraw){
+    shared_stats <- subset(imsiraw, imsi %in% shared_imsi)
+    plot_normalized_types(shared_stats, 'Types of devices shared in Philippines')
 }
