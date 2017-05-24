@@ -15,40 +15,37 @@ plot_normalized_types <- function(imsiraw, title_text){
     phone_ts <- phone_ts[order(year, month)]
     phone_ts$date = as.Date(as.yearmon(phone_ts$date, format = '%m-%Y'))
 
-    #sg <- streamgraph(data = phone_ts, key = 'network_support', value = 'percentage', date = 'date', offset="zero",
-    #    interpolate="linear") %>% 
-     # Set the X axis ticks to be 1 per year
-    # sg_axis_x(tick_interval=3, tick_units="month", tick_format = '%m-%Y') %>% 
-     # create a legend
-    # sg_legend(show = FALSE) %>% 
-     # Add a title
-    # sg_title(title=title_text) %>% 
-     # Render the HTML
-    # html_print()
-
     phone_ts <- phone_ts[, c('type', 'percentage', 'date', 'N')]
 
     data <- data.frame(phone_ts)
 
-    #p <- ggplot(data, aes(x=date, y=percentage, fill=type)) + geom_area() + labs(title = title_text, x = 'Time', 
-    #    y = 'Distribution of Devices', fill = 'Phone Types') + scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9"))
+    p <- ggplot(data, aes(x=date, y=percentage, fill=type)) + geom_area() + labs(y = 'Distribution of Devices',
+     fill = 'Phone Types') + scale_color_manual(values=c("#d95f02", "#1b9e77", "#7570b3"))
 
     data$type <- as.factor(data$type)
 
-    #p <- ggplot(data, aes(x=date, y=percentage, fill=type)) +
-    #geom_area(colour="black", size=.2, alpha=.4) +
-    #scale_fill_brewer(palette="Greens", breaks=rev(levels(data$type))) + 
-    #labs(title = 'Adoption Rate in Indonesia', x = 'Time', 
-    #    y = 'Distribution of Devices', fill = 'Types') 
+    data[which(data$type == '2G'), 'c'] = "#d95f02"
+    data[which(data$type == '3G'), 'c'] = "#1b9e77"
+    data[which(data$type == '4G'), 'c'] = "#7570b3"
 
-    p <- ggplot(data, aes(x=date, y=percentage, fill=type)) +
-    geom_area(colour="black", size=.2, alpha=.4) +
-    #scale_fill_brewer('red', 'blue', 'green') + 
-    scale_x_date(breaks = pretty_breaks(10)) + 
-    labs(title = title_text, x = 'Time', 
-        y = 'Distribution of Devices', fill = 'Types')
+    p <- ggplot() + geom_area(aes(y = percentage, x = date, fill = type), data = data,
+                           stat="identity") + 
+    scale_fill_manual(values = c("#d95f02", "#1b9e77", "#7570b3")) + 
+    labs(y = '% of mobile phones in community', x = "", title = 'Philippines (April 2016 onwards)') + 
+    scale_x_date(date_breaks = '2 month', labels=date_format("%b'%y"), expand = c(0, 0.5)) + 
+    scale_y_continuous(expand = c(0, 0)) + 
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+              panel.background = element_blank(), axis.line = element_line(colour = "black"), 
+              axis.title.x=element_blank(), axis.title.y=element_text(size=30, hjust = 0.5), 
+              axis.text.x = element_text(size = 30), axis.text.y = element_text(size = 30),
+               legend.title=element_blank(), title = element_text(size = 20))
 
-    p <- ggplotly(p)
+    plt <- ggplotly(p) %>%
+    layout(legend = list(font = list(size = 35)), margin = list(l = 150, t = 150), titlefont = list(size = 40))
+
+    
+    
+    plt
     
     l <- list()
     l$plt <- p 

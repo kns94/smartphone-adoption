@@ -1,42 +1,40 @@
 library('data.table')
 library('zoo')
 
-task <- fread('Batch_2777334_batch_results.csv')
-task <- task[, c(28:36), ]
+task1 <- fread('Batch_2777334_batch_results.csv')
+task1 <- task1[, c(28:36), ]
+task1[ ,fname:=paste(Input.brand, Input.model, Input.marketing)]
+task1 <- task1[,c('fname', 'Answer.year'), ]
+task1$Answer.year <- tolower(task1$Answer.year)
+task1$fname <- tolower(task1$fname)
+task1 <- unique(task1)
 
-incomplete <- subset(task, Answer.unavail == 'on')
-task <- subset(task, Answer.unavail != 'on')
-#Some tasks which were marked incomplete did contain year of manufacture
-r <- subset(incomplete, Answer.year != '{}')
-#Concatenating both datatables
-task <- rbind(task, r, fill = T)
 #Some complete tasks contain null in years
-task <- subset(task, Answer.year != '{}')
+no_year <- subset(task1, Answer.year == '{}')
+task1 <- subset(task1, Answer.year != '{}')
 
-task[ ,fname:=paste(Input.brand, Input.model, Input.marketing)]
-task$Answer.year <- tolower(task$Answer.year)
+incorrect = data.frame(matrix(0, nrow = 0, ncol = 1))
+correct = data.frame(matrix(0, nrow = 0, ncol = 2))
+names(correct) <- names(task1)
+names(incorrect) <- 'fname'
 
-#complete.sub$Answer.4g <- tolower(complete.sub$Answer.4g)
-#complete.sub$Answer.gsmarena <- tolower(complete.sub$Answer.gsmarena)
-#complete.sub$Answer.os <- tolower(complete.sub$Answer.os)
-#complete.sub$Answer.screen_size <- tolower(complete.sub$Answer.screen_size)
-
-incorrect = data.frame(matrix(0, nrow = 0, ncol = 3))
-correct = data.frame(matrix(0, nrow = 0, ncol = length(task)))
-names(correct) <- names(task)
-
-for(name in unique(task$fname)){
-  res = subset(task, fname == name)
+for(name in unique(task1$fname)){
+  res = subset(task1, fname == name)
   res.year <- res$Answer.year
 
   if(length(unique(res.year)) != 1){
-    incorrect[nrow(incorrect) + 1, ] <- c(res$Input.brand[1], res$Input.model[1],
-                                        res$Input.marketing[1])
+    incorrect[nrow(incorrect) + 1, ] <- res$fname[1]
   }
   else{
     correct[nrow(correct) + 1, ] <- res[1, ]
   }
 }
+
+no_year <- data.frame(no_year[,fname])
+names(no_year) <- 'fname'
+
+incomplete <- rbind(incorrect, no_year)
+incomplete <- unique(incomplete)
 
 #Merge tac database with the correct values filtered
 merge_tacdb <- function(correct){
@@ -109,17 +107,14 @@ clean_years <- function(years){
 }
 
 correct <- data.table(correct)
-correct <- correct[, c('fname', 'Answer.year'), ]
 names(correct) <- c('fname', 'year')
 
 years <- clean_years(correct)
 years$modified <- as.character(years$modified)
 years[is.na(modified), modified:='not_found']
 
-task <- task1[, c('fname', 'modified'), ]
-names(task) <- c('fname', 'year')
-
-write.csv(years, 'tac_results_1.csv', row.names = F)
+write.csv(years, 'turk_task1_complete.csv', row.names = F)
+write.csv(incomplete, 'turk_task1_incomplete.csv', row.names = F)
 
 
 ##################### This is for the second parse #####################################
@@ -139,6 +134,10 @@ task2[grepl('HBV', Answer.year, ignore.case = T), Answer.year:='incorrect']
 task2[grepl('no', Answer.year, ignore.case = T), Answer.year:='not_found']
 task2[grepl('only', Answer.year, ignore.case = T), Answer.year:='not_found' ]
 #Filter empty values
+empty_task2 <- subset(task2, Answer.year == '{}')
+empty_task2 <- as.data.table(empty_task2[,fname,])
+write.csv(empty_task2, 'turk_task2_incomplete.csv', row.names = F)
+
 task2 <- subset(task2, Answer.year != '{}')
 
 #task2 <- merge_tacdb(task2)
@@ -155,8 +154,9 @@ task2[year == 'not_found', modified:='not_found']
 
 task2 <- task2[, c('fname', 'modified'), ]
 names(task2) <- c('fname', 'year')
+task2[is.na(year), year:='not_found']
 
-write.csv(task2, 'tac_results_2.csv', row.names = F)
+write.csv(task2, 'turk_task2_complete.csv', row.names = F)
 
 ########################### Task 3 #####################################
 
@@ -164,6 +164,9 @@ task3 <- fread('mturk_parse_3.csv', colClasses = 'character')
 task3[ ,fname:=paste(Input.brand, Input.model, Input.marketing)]
 task3$Answer.year <- tolower(task3$Answer.year)
 task3 <- task3[, c('fname', 'Answer.year'), ]
+
+empty_task3 = subset(task3, Answer.year == '{}' | Answer.year == '' | Answer.year == ' ')
+write.csv(empty_task3, 'turk_task3_incomplete.csv', row.names = F)
 
 task3 <- subset(task3, Answer.year != '{}')
 task3 <- subset(task3, Answer.year != '')
@@ -185,8 +188,8 @@ task3[grepl('remote', Answer.year, ignore.case = T), Answer.year:='incorrect']
 task3[grepl('not found', Answer.year, ignore.case = T), Answer.year:='not_found']
 task3[grepl('info found', Answer.year, ignore.case = T), Answer.year:='not_found']
 
-#months <- month.abb[1:12]
-#months = paste(months, collapse = '|')
+months <- month.abb[1:12]
+months = paste(months, collapse = '|')
 
 ym <- task3[grepl(months, Answer.year, ignore.case = T), ]
 f1 <- task3[!grepl(months, Answer.year, ignore.case = T), ]
@@ -216,6 +219,7 @@ task3[is.na(modified), modified:='not_phone']
 task3 <- task3[, c('fname', 'year'), ]
 names(task3) <- c('fname', 'year')
 
+write.csv(task3, 'turk_task3_complete.csv', row.names = F)
 #write.csv(task3, 'tac_results_3.csv', row.names = F)
 
 tasks <- rbind(task, task2, task3)
@@ -358,13 +362,13 @@ names(task4) <- c('fname', 'year')
 task4 <- unique(task4)
 task4 <- clean_years(task4)
 
-replace_0 <- gsub('0', 'o', task3[is.na(modified), year])
-task3[is.na(modified), year:=replace_0]
+replace_0 <- gsub('0', 'o', task4[is.na(modified), year])
+task4[is.na(modified), year:=replace_0]
 
-task3$modified <- as.character(task3$modified)
-task3[year == 'incorrect', modified:='not_phone']
-task3[year == 'not_found', modified:='not_found']
-task3[is.na(modified), modified:='not_phone']
+task4$modified <- as.character(task4$modified)
+task4[year == 'incorrect', modified:='not_phone']
+task4[year == 'not_found', modified:='not_found']
+task4[is.na(modified), modified:='not_phone']
 
-task3 <- task3[, c('fname', 'year'), ]
-names(task3) <- c('fname', 'year')
+task4 <- task4[, c('fname', 'year'), ]
+names(task4) <- c('fname', 'year')

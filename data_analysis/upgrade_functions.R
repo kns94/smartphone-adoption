@@ -24,17 +24,40 @@ compute_phones_online <- function(imsi_mapped){
     average_monthly_phone_usage <- average_daily_phone_usage[, list(monthly_mean_hours = mean(daily_mean_hours)),
         by = list(accessed_year, accessed_month, network_support)]
 
-    average_monthly_phone_usage[, accessed_ds:= paste(accessed_month, accessed_year, sep = '-')]
-    average_monthly_phone_usage$accessed_ds = as.Date(as.yearmon(average_monthly_phone_usage$accessed_ds, format = '%m-%Y'))
+    num_months <- nrow(unique(average_monthly_phone_usage[, list(accessed_month, accessed_year)]))
+
+    average_yearly_phone_usage <- average_monthly_phone_usage[, list(yearly_hours = sum(monthly_mean_hours)), by = list(network_support)]
+    average_yearly_phone_usage[,yearly_mean_hours:=yearly_hours/num_months]
+
+    average_monthly_phone_usage[, accessed_ds:=as.Date(paste(1, accessed_month, accessed_year, sep = '-'), format = '%d-%m-%Y')]
+
+    write.csv(average_monthly_phone_usage, 'paper_plots/average_daily_online_hours_year.csv', row.names = F)
+
+    #average_monthly_phone_usage[, accessed_ds:= paste(accessed_month, accessed_year, sep = '-')]
+    #average_monthly_phone_usage$accessed_ds = as.Date(as.yearmon(average_monthly_phone_usage$accessed_ds, format = '%m-%Y'))
 
     average_monthly_phone_usage <- average_monthly_phone_usage[, c('accessed_ds', 'monthly_mean_hours', 'network_support')]
     average_monthly_phone_usage <- dcast(average_monthly_phone_usage, accessed_ds ~ network_support, value.var = 'monthly_mean_hours')
 
-    p <- plot_ly(average_monthly_phone_usage, x = ~accessed_ds, y = ~twoG, type = 'bar', name = '2G Phones') %>%
-            add_trace(y = ~threeG, name = '3G Phones') %>%
-            add_trace(y = ~fourG, name = '4G Phones') %>%
-            layout(yaxis = list(title = 'Average of Average Daily Usage'), xaxis = list(title = 'Month'),
-             barmode = 'group', title= 'Mean of average daily hours per month in Philippines')
+    p <- plot_ly(average_monthly_phone_usage, x = ~accessed_ds, y = ~`2G`, type = 'bar', name = '2G', marker = list(color = '#d95f02')) %>%
+            add_trace(y = ~`3G`, name = '3G', marker = list(color = '#1b9e77')) %>%
+            add_trace(y = ~`4G`, name = '4G', marker = list(color = '#7570b3')) %>%
+            layout(yaxis = list(title = 'Average Monthly activity', showgrid = FALSE, tickfont = list(size = 35), showline = T, titlefont = list(size =35)),
+             xaxis = list(title = "", tickfont = list(size = 35)),
+             barmode = 'group', legend = list(font = list(size = 32)), 
+             titlefont = list(size = 40), margin = list(l = 80))
+
+    layout(yaxis = list(title = 'Percentage of Phones', showline = TRUE, showgrid = FALSE, 
+        titlefont = list(size =35), tick0 = 0, tickfont = list(size = 35)), barmode = 'group',
+       xaxis = list(title = "", tickfont = list(size = 35), tick0 = 0, dtick = 0), 
+        legend = list(x = 0.75, y = 1, font = list(size = 32)), title = 'Philippines (April 2016 onwards)', 
+        titlefont = list(size = 40), margin = list(t = 150, l = 150))
+
+    p <- plot_ly(average_monthly_phone_usage, x = ~network_support, y = ~monthly_mean_hours, type = 'bar', 
+        marker = list(color = c('rgb(244,125,124)', 'rgb(153,230,167)',
+                                'rgb(149,204,240)'))) %>%
+            layout(yaxis = list(title = 'Average hours'), xaxis = list(title = 'Type of Device'),
+             barmode = 'group', title= 'Average daily hours of community members in Philippines (April 2016 onwards)')
 
     return(p)
 }
@@ -141,8 +164,15 @@ get_inflection_point <- function(imsiraw){
     y <- list(
         title = "Number of Sims"
     )
+
+    p <- ggplot(data = days_usage, aes(num_days, num_users)) + geom_point(color = 'blue') + 
+      labs(x = "Number of days in network", y = 'Number of users') 
+
+    ggplotly(p)
+
+ 
     plot_ly(data = days_usage, x = ~num_days, y = ~num_users) %>%
-            layout(xaxis = x, yaxis = y, title = 'Number of days of Network-Activity vs Number of SIMs in Indonesia')
+            layout(xaxis = x, yaxis = y) #title = 'Number of days of Network-Activity vs Number of SIMs in Indonesia')
 
 
     #Metric 2: Difference of days
@@ -212,7 +242,7 @@ filter_local_users <- function(imsiraw){
     #Merging both dataframes
     setkey(imsiraw, imsi)
     setkey(times, imsi)
-    imsiraw = merge(imsiraw, times)
+    imsiraw = merge(imsiraw, times, all.x = TRUE)
     
     #Same time as experiment
     #imsiraw <- subset(imsiraw, accessed_ds > as.Date('04-01-2016', format = '%m-%d-%Y'))
@@ -231,7 +261,7 @@ filter_local_users <- function(imsiraw){
 
 
     #Local users are those registered on network ie is_auth > 0 or else having an activity of atleast 10 days on the network
-    imsiraw = subset(imsiraw, (is_auth > 0) | (number_days >= 10))
+    imsiraw = imsiraw[(is_auth > 0) | (number_days >= 10), ]
     return(imsiraw)
 }
 
@@ -288,7 +318,7 @@ compute_sim_sharing <- function(sim_activity){
     return(F)
 }
 
-compute_phone_upgrade <- function(IMSI, imsiraw, sim_activity, phone_upgrades, community_transfer, upgrade_age){
+compute_phone_upgrade <- function(IMSI, imsiraw, sim_activity, phone_upgrades, community_transfer, upgrade_age, no_year){
     all_imei = unique(sim_activity$imeicorrected)
     current_type = NA
     current_age = NA
@@ -322,6 +352,28 @@ compute_phone_upgrade <- function(IMSI, imsiraw, sim_activity, phone_upgrades, c
                 else{
                     phone_upgrades[row, 'count'] <- as.numeric(phone_upgrades[row, 'count']) + 1
                 }
+
+                current_date = as.character(imsiraw[tac == TAC & imeicorrected == IMEI, ]$accessed_ds[1])
+                #This gives us the manufacturing year from the turk task undertaken
+                phone_year = as.character(imsiraw[tac == TAC, ]$year[1])
+                full_name = as.character(imsiraw[tac == TAC, ]$fname[1])
+                company_name = as.character(imsiraw[tac == TAC, ]$`Manufacturer (or) Applicant`[1])
+
+
+                if(length(phone_year) == 0 | is.na(phone_year) | phone_year == 'not_found'){
+                    if(current_type == '2G' & new_type == '3G'){
+                        no_year[nrow(no_year) + 1, ] <- c(full_name, TAC, company_name)
+                    }
+                }
+                else{
+
+                    if(current_type != FALSE & new_type != FALSE){
+                        u = paste(current_type, new_type, sep = '_')
+                        phone_year = as.POSIXct(phone_year, format = '%m/%d/%Y')
+                        diff <- year(current_date) - year(phone_year)
+                        upgrade_age[[u]][[length(upgrade_age[[u]]) + 1]] <- diff
+                    }
+                }
                 
                 current_type = new_type
             }
@@ -330,6 +382,8 @@ compute_phone_upgrade <- function(IMSI, imsiraw, sim_activity, phone_upgrades, c
 
     l$phone_upgrades <- phone_upgrades
     l$community_transfer <- community_transfer
+    l$no_year <- no_year
+    l$upgrade_age <- upgrade_age
 
     return(l)
 }
@@ -369,4 +423,266 @@ get_upgrade_matrix <- function(phone_upgrades){
 shared_phones <- function(shared_imsi, imsiraw){
     shared_stats <- subset(imsiraw, imsi %in% shared_imsi)
     plot_normalized_types(shared_stats, 'Types of devices shared in Philippines')
+}
+
+#Script to compute ttest of number of online hours in Philippines
+compute_ttest_online_hours <- function(imsiraw){
+    average_daily_phone_usage <- imsiraw[, list(daily_mean_hours = mean(times_accessed_per_day)), by = list(accessed_ds, 
+        network_support)][order(accessed_ds)]
+
+    twoG_hours <- as.data.frame(average_daily_phone_usage[network_support == '2G', c('daily_mean_hours')])
+    colnames(twoG_hours) <- c('hours')
+    twoG_hours$hours <- round(twoG_hours$hours, 2)
+
+    h_2g <- ggplot(twoG_hours, aes(x = hours)) +
+            geom_histogram(aes(y = ..density..), fill="white", binwidth = .2, colour = '#ff7271') +
+            stat_function(fun = dnorm, 
+                            args = list(mean = mean(twoG_hours$hours), sd = sd(twoG_hours$hours)), 
+                            lwd = 2, 
+                            col = '#ff7271') + 
+            labs(title="Distribution of average daily 2G hours",
+                y="Count of hours", x = 'Hours') 
+
+    ggplotly(h_2g)
+
+    threeG_hours <- as.data.frame(average_daily_phone_usage[network_support == '3G', 'daily_mean_hours']$daily_mean_hours)
+    colnames(threeG_hours) <- c('hours')
+    threeG_hours$hours <- round(threeG_hours$hours, 2)
+
+    h_3g <- ggplot(threeG_hours, aes(x = hours)) +
+            geom_histogram(aes(y = ..density..), fill="white", binwidth = .2, colour = '#99e6a7') +
+            stat_function(fun = dnorm, 
+                            args = list(mean = mean(threeG_hours$hours), sd = sd(threeG_hours$hours)), 
+                            lwd = 2, 
+                            col = '#99e6a7') + 
+            labs(title="Distribution of average daily 3G hours",
+                y="Count of hours", x = 'Hours') 
+    ggplotly(h_3g)
+
+    fourG_hours <- as.data.frame(average_daily_phone_usage[network_support == '4G', 'daily_mean_hours']$daily_mean_hours)
+    colnames(fourG_hours) <- c('hours')
+    fourG_hours$hours <- round(fourG_hours$hours, 2)
+
+    h_4g <- ggplot(fourG_hours, aes(x = hours)) +
+            geom_histogram(aes(y = ..density..), fill="white", binwidth = .2, colour = '#95ccf0') +
+            stat_function(fun = dnorm, 
+                            args = list(mean = mean(fourG_hours$hours), sd = sd(fourG_hours$hours)), 
+                            lwd = 2, 
+                            col = '#95ccf0') + 
+            labs(title="Distribution of average daily 4G hours",
+                y="Count of hours", x = 'Hours') 
+
+    ggplotly(h_4g)
+
+    #    stat_function(fun=qnorm, args=list(mean=mean(twoG_hours$hours), sd=sd(twoG_hours$hours)))
+
+    #threeG_hours <- as.vector(average_daily_phone_usage[network_support == '3G', 'daily_mean_hours']$daily_mean_hours)
+    #fourG_hours <- as.vector(average_daily_phone_usage[network_support == '4G', 'daily_mean_hours']$daily_mean_hours)
+
+    #h <- hist(g, breaks=10, density=10, col='#ff7271', xlab="Accuracy", main="Overall") 
+    #xfit<-seq(min(g),max(g),length=40) 
+    #yfit<-dnorm(xfit,mean=mean(g),sd=sd(g)) 
+    #yfit <- yfit*diff(h$mids[1:2])*length(g) 
+    #lines(xfit, yfit, col="black", lwd=2)
+}
+
+regression_model <- function(imsiraw){
+    #Getting unique phones per month
+    phone_count <- imsiraw[, list(accessed_month, accessed_year, network_support, imsi, imeicorrected), ]
+    phone_count <- unique(phone_count)
+
+    #Aggregating the monthly count
+    phone_count <- phone_count[, list(count = .N), by = list(accessed_month, accessed_year, network_support)][order(accessed_year, accessed_month)]
+    phone_count[,date:=paste(1, accessed_month, accessed_year, sep = '-')]
+    phone_count$date <- as.Date(phone_count$date, format = '%d-%m-%Y')
+
+    phone_count <- phone_count[date < as.Date('2017-02-01'), ]
+
+    twoG_count <- as.data.frame(phone_count[network_support == '2G', c('accessed_ds', 'count')])
+    colnames(twoG_count) <- c('date', 'count')
+    twoG_count$date <- as.Date(twoG_count$date, format = '%Y-%m-%d')
+
+    twoG_count$num_date <- as.numeric(twoG_count$date)
+    fit_2G <- lm(twoG_count, formula = 'count ~ num_date + I(num_date^2)')
+    fitted.value <- fitted(fit_2G)
+
+    p <- ggplot(twoG_count, aes(x = num_date)) + 
+        geom_line(aes(y = count), color = "#ff7271") + 
+        geom_line(mapping = aes(y = fitted.value)) + 
+        labs(title="Growth of 2G Phones in Philippines",
+            y="Number of devices", x = 'Date')
+
+    ggplotly(p)
+
+    threeG_count <- as.data.frame(phone_count[network_support == '3G', c('accessed_ds', 'count')])
+    colnames(threeG_count) <- c('date', 'count')
+    threeG_count$date <- as.Date(threeG_count$date, format = '%Y-%m-%d')
+
+    threeG_count$num_date <- as.numeric(threeG_count$date)
+    fit_3G <- lm(threeG_count, formula = 'count ~ num_date + I(num_date^2)')
+    fitted.value <- fitted(fit_3G)
+
+    p <- ggplot(threeG_count, aes(x = num_date)) + 
+        geom_line(aes(y = count), color = "#008000") + 
+        geom_line(mapping = aes(y = fitted.value)) + 
+        labs(title="Growth of 3G Phones in Philippines",
+            y="Number of devices", x = 'Date')
+
+    ggplotly(p)
+
+    fourG_count <- as.data.frame(phone_count[network_support == '4G', c('date', 'count')])
+    #colnames(fourG_count) <- c('date', 'count')
+    #fourG_count$date <- as.Date(fourG_count$date, format = '%Y-%m-%d')
+
+    fourG_count$num_date <- as.numeric(fourG_count$date)
+    #fit_4G <- lm(fourG_count, formula = 'count ~ num_date + I(num_date^2) + I(num_date^3)')
+    fit_quad_4G <- lm(fourG_count, formula = 'count ~ num_date + I(num_date^2)')
+    fit_lr_4G <- lm(fourG_count, formula = 'count ~ num_date')
+    #fitted_quad.value <- fitted(fit_quad_4G)
+
+    df.prediction <- data.frame(matrix(0, nrow = nrow(fourG_count) + 29, ncol = 2))
+    names(df.prediction) <- c('date', 'num_date')
+
+    df.prediction[1:nrow(fourG_count), ] <- fourG_count[, c('date', 'num_date')]
+    last_date <- fourG_count[nrow(fourG_count), 'date']
+
+    #seq(from=as.Date(last_date), to=as.Date("2018-12-01"),by='month' )
+    df.prediction[nrow(fourG_count):nrow(df.prediction), 'date'] <- seq(from=as.Date(last_date) ,by='month', length.out = 30)
+    df.prediction$num_date <- as.numeric(df.prediction$date)
+    df.prediction$date <- as.Date(df.prediction$date)
+
+    quad_prediction <- predict(fit_quad_4G, df.prediction, interval = 'confidence')
+    lr_prediction <- predict(fit_lr_4G, df.prediction, interval = 'confidence')
+    df.prediction$quad_fit <- quad_prediction[,1]
+    df.prediction$quad_lwr <- quad_prediction[,2]
+    df.prediction$quad_upr <- quad_prediction[,3]
+    df.prediction$actual_count <- NA
+    df.prediction[1:nrow(fourG_count), 'actual_count'] <- fourG_count$count
+    df.prediction$lr_fit <- lr_prediction[,1]
+    df.prediction$lr_lwr <- lr_prediction[,2]
+    df.prediction$lr_upr <- lr_prediction[,3]
+    #p <- ggplot(fourG_count, aes(x.num_date, y.count)) + #geom_line(aes(y = count), color = "#3399FF") + 
+    #labs(title="Growth of 4G Phones in Philippines",
+    #            y="Number of devices", x = 'Date') + 
+    #    geom_smooth(method = 'lm', formula = 'count ~ num_date + I(num_date^2)')
+
+    ggplot(fourG_count, aes(x = date)) + geom_line(aes(y = count))
+
+    p <- ggplot(df.prediction, aes(x = date)) + 
+            geom_line(aes(y = quad_fit, colour = 'Predicted 4G growth'), size = 1) + 
+            geom_line(aes(y = quad_lwr, color = "95% confidence interval")) +
+            geom_line(aes(y = quad_upr), color = "grey") + 
+            geom_line(aes(y = actual_count, colour = 'Monthly active users'), size = 1) + 
+            geom_linerange(aes(ymin = 340, ymax = 260, x = as.Date('2019-05-01'), color = 'Estimated Market Viability')) +
+            #geom_line(aes(y = lr_fit, colour = 'Predicted 4G growth (Linear)')) + 
+            scale_x_date(date_breaks = '8 month', labels=date_format("%b-%y"), expand = c(0, 0)) + 
+            scale_color_manual(NULL, values=c(`Predicted 4G growth`="black", "95% confidence interval" = 'grey',
+             `Monthly active users` = "#3399FF", `Estimated Market Viability` = 'blue')) +  
+            labs(y="Active 4G devices per month") + 
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+              panel.background = element_blank(), axis.line = element_line(colour = "black"), 
+              axis.title.x=element_blank(), legend.position="top", axis.title.y=element_text(size = 25), 
+              axis.text.x = element_text(size = 25), axis.text.y = element_text(size = 25))
+
+    plt <- ggplotly(p) %>%
+            layout(legend = list(x = 0.1, y = 0.5, font = list(size = 30)), margin = list(l = 120)) #%>%
+            #add_trace(x = c(as.Date('2019-05-01'), as.Date('2019-05-01')), y= c(260, 340), mode = "lines")
+
+    plt
+
+
+    #p <- ggplot(fourG_count, aes(x = date)) + 
+    #    geom_line(aes(y = count), color = "#3399FF") + 
+    #    geom_line(mapping = aes(y = fitted)) + 
+    #    labs(title="Growth of 4G Phones in Philippines",
+    #        y="Number of devices", x = 'Date')
+
+    twoG_ts <- xts(twoG_count[,-1], order.by=twoG_count[,1])
+    x.ts = ts(twoG_ts, freq=365, start=c(2016, 305))
+
+    #ts(twoG_count$hours, frequency = 365.25, start =  c(2016, 4, 11))
+    #t <- msts(twoG_count$count, seasonal.periods=c(7,365.25), start = c(2016, 4 ,11))
+    #t <- ts(twoG_count$count, frequency = 365.25, start =  c(2016, 4))
+
+    fourG_count$num_date <- as.numeric(fourG_count$date)
+    fourG_count$num_d2 <- fourG_count$num_date * fourG_count$num_date 
+    fit_4G <- lm(fourG_count, formula = 'count ~ date + d2')
+    test_df <- fourG_count[, c('num_date', 'num_d2')]
+    fg_predictions <- predict(fit_4G, test_df, interval="predict") 
+
+    #last_date <- test_df[nrow(test_df), 'date']
+    #next_year <- c(last_date : (last_date + 365))
+    #new_test_df <- data.frame(date = next_year, d2 = next_year * next_year)
+    #test_df <- rbind(test_df, new_test_df)
+    #predict(fit_4G, test_df, interval="predict") 
+}
+
+bar_aggregated <- function(local, non_local){
+    local_agg <- local[, list(imei, network_support), ]
+    local_agg <- unique(local_agg)
+    local_agg <- local_agg[, list(ratio = .N/nrow(local_agg) * 100), by = list(network_support)]
+    local_agg$community <- 'Local'
+
+    non_local_agg <- non_local[, list(imei, network_support), ]
+    non_local_agg <- unique(non_local_agg)
+    non_local_agg <- non_local_agg[, list(ratio = .N/nrow(non_local_agg) * 100), by = list(network_support)]
+    non_local_agg$community <- 'Non Local'
+
+    agg <- data.frame(matrix(nrow = 0, ncol = 4))
+    colnames(agg) <- c('community', '2G', '3G', '4G')
+
+    agg[1, 'community'] <- 'Local'
+    agg[1, '2G'] <- as.numeric(local_agg[network_support == '2G', 'ratio'])
+    agg[1, '3G'] <- as.numeric(local_agg[network_support == '3G', 'ratio'])
+    agg[1, '4G'] <- as.numeric(local_agg[network_support == '4G', 'ratio'])
+
+    agg[2, 'community'] <- 'Non Local'
+    agg[2, '2G'] <- as.numeric(non_local_agg[network_support == '2G', 'ratio'])
+    agg[2, '3G'] <- as.numeric(non_local_agg[network_support == '3G', 'ratio'])
+    agg[2, '4G'] <- as.numeric(non_local_agg[network_support == '4G', 'ratio'])
+
+
+    p <- plot_ly(agg, x = ~community, y = ~`2G`, type = 'bar', name = '2G', marker = list(color = '#d95f02')) %>%
+      add_trace(y = ~`3G`, name = '3G', marker = list(color = '#1b9e77')) %>%
+      add_trace(y = ~`4G`, name = '4G', marker = list(color = '#7570b3') ) %>%
+      layout(yaxis = list(title = 'Percentage of Phones', showline = TRUE, showgrid = FALSE, 
+        titlefont = list(size =35), tick0 = 0, tickfont = list(size = 35)), barmode = 'group',
+       xaxis = list(title = "", tickfont = list(size = 35), tick0 = 0, dtick = 0), 
+        legend = list(x = 0.75, y = 1, font = list(size = 32)), title = 'Philippines (April 2016 onwards)', 
+        titlefont = list(size = 40), margin = list(t = 150, l = 150))
+
+      layout(legend = list(x = 0.1, y = 0.5, font = list(size = 22)), margin = list(a = 250)) #%>%
+
+      layout(legend = list(x = 0.1, y = 0.9))
+
+    ggplot(agg, aes(community, network_support)) +
+    geom_bar(aes(ratio), width = 0.4, position = position_dodge(width=0.4), 
+        stat="identity") +  
+    theme(legend.position="right", legend.title = element_blank(),
+    axis.title.x = element_blank(), panel.background = element_blank(), 
+    panel.grid.minor = element_blank()) + 
+    labs(y = "Number of devices")
+
+    ggplot(agg, aes(community, network_support)) + geom_bar(aes(fill = ratio), position = "dodge", stat="identity") + 
+    scale_fill_manual("legend", values = c("A" = "black", "B" = "orange", "C" = "blue"))
+
+    twoG <- data.frame(matrix(0, nrow = 0, ncol = 2))
+    colnames(twoG) <- c('type', 'ratio')
+    twoG[nrow(twoG) + 1, ] <- c('local', as.numeric(local_agg[network_support == '2G', 'ratio']))
+    twoG[nrow(twoG) + 1, ] <- c('non-local', as.numeric(non_local_agg[network_support == '2G', 'ratio']))
+
+    threeG <- data.frame(matrix(0, nrow = 0, ncol = 2))
+    colnames(threeG) <- c('type', 'ratio')
+    threeG[nrow(threeG) + 1, ] <- c('local', as.numeric(local_agg[network_support == '3G', 'ratio']))
+    threeG[nrow(threeG) + 1, ] <- c('non-local', as.numeric(non_local_agg[network_support == '3G', 'ratio']))
+
+    fourG <- data.frame(matrix(0, nrow = 0, ncol = 2))
+    colnames(fourG) <- c('type', 'ratio')
+    fourG[nrow(fourG) + 1, ] <- c('local', as.numeric(local_agg[network_support == '4G', 'ratio']))
+    fourG[nrow(fourG) + 1, ] <- c('non-local', as.numeric(non_local_agg[network_support == '4G', 'ratio']))
+
+    plot_ly(threeG, x = ~type, y = ~ratio, type = 'bar', 
+        marker = list(color = c('#7fbf7b'))) %>%
+            layout(yaxis = list(title = 'Average hours'), xaxis = list(title = 'Type of Device'),
+             barmode = 'group', title= 'Types of devices between Local and Non-Local users')
 }
